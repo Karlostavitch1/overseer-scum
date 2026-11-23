@@ -33,6 +33,9 @@ jobs:
         shell: pwsh
         run: ./scripts/package.ps1 -Configuration Release
 
+      - name: Native tests
+        run: ctest --test-dir build/native -C Release --output-on-failure
+
       - uses: actions/upload-artifact@v7
         with:
           name: overseer-${{ github.sha }}

@@ -8,6 +8,7 @@
 #include "core/log.h"
 #include "engine/engine_bridge.h"
 #include "overseer/native_api.h"
+#include "util/module.h"
 
 namespace overseer {
 namespace {
@@ -62,6 +63,13 @@ DWORD WINAPI Bootstrap(LPVOID selfModule) {
 
     log::Open(root / L"logs" / L"native.log");
     log::Info("Overseer native " OVERSEER_VERSION " starting; root=" + g_rootUtf8);
+
+    const auto host = module::MainModule();
+    char hostInfo[160];
+    snprintf(hostInfo, sizeof(hostInfo), "base=0x%llx size=0x%zx timestamp=0x%08x version=%s",
+             static_cast<unsigned long long>(host.base), host.size, host.timestamp,
+             host.fileVersion.empty() ? "?" : host.fileVersion.c_str());
+    log::Info("host process: " + ToUtf8(host.path) + " " + hostInfo);
 
     // TODO(engine-bridge): select a real SCUM bridge here once implemented.
     g_bridge = engine::CreateNullEngineBridge();

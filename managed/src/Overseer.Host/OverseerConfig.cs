@@ -16,7 +16,7 @@ public sealed class RconSettings
     /// <summary>Defaults to loopback. Only expose RCON behind a firewall/VPN — it is unencrypted.</summary>
     public string BindAddress { get; set; } = "127.0.0.1";
 
-    public int Port { get; set; } = 27015;
+    public int Port { get; set; } = 27020;
 
     /// <summary>Generated on first run if empty.</summary>
     public string Password { get; set; } = string.Empty;
