@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Example Overseer plugin. Build it, then copy HelloPlugin.dll into
+    <server>/SCUM/Binaries/Win64/overseer/plugins/ (or devroot/plugins/ when
+    using the dev host) and run `overseer.reload`.
+
+    Out-of-tree plugins would reference the Overseer.Api NuGet package instead
+    of the project, with Private=false / ExcludeAssets=runtime so the API
+    assembly isn't copied next to the plugin.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\managed\src\Overseer.Api\Overseer.Api.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

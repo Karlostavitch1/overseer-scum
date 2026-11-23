@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>overseer-rcon</AssemblyName>
+    <Description>Minimal Source RCON command-line client.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Overseer.Rcon\Overseer.Rcon.csproj" />
+  </ItemGroup>
+</Project>

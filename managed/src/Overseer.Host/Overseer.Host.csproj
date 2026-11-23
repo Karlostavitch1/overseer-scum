@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Overseer runtime: loaded into SCUMServer.exe by overseer_native.dll.</Description>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Emits Overseer.Host.runtimeconfig.json so hostfxr can load this library. -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Overseer.Api\Overseer.Api.csproj" />
+    <ProjectReference Include="..\Overseer.Rcon\Overseer.Rcon.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Overseer.Host.Tests" />
+  </ItemGroup>
+</Project>

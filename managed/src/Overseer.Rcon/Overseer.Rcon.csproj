@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Source RCON protocol implementation (server and client) used by Overseer.</Description>
+  </PropertyGroup>
+</Project>

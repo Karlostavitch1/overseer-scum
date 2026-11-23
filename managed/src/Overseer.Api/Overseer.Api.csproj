@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Public plugin API for Overseer, the open source SCUM server framework.</Description>
+    <PackageId>Overseer.Api</PackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Overseer.Host" />
+  </ItemGroup>
+</Project>

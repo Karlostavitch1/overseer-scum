@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Runs the Overseer runtime outside SCUM with a fake engine, for development.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Overseer.Host\Overseer.Host.csproj" />
+  </ItemGroup>
+</Project>

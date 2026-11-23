@@ -1,0 +1,30 @@
+# Build output
+build/
+dist/
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+
+# Test / runtime output
+TestResults/
+devroot/
+*.log
+
+# Packages
+*.nupkg
+packages/
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Never commit game files or dumps
+*.pak
+*.ucas
+*.utoc
+SDK/
+dumps/
