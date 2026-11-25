@@ -72,6 +72,29 @@ Traced statically (capstone; see the structure, not the addresses):
   intended output-capture mechanism, replacing the first-pass log scraping.
   The slot index is to be resolved at runtime, never hard-coded.
 
+## Executor is an interface (follow-up finding)
+
+Static + reflection analysis refined the executor model:
+
+- `AdminCommandExecutor` is a **UInterface** (`: CoreUObject.Interface`), not a
+  plain object. The executor is therefore any UObject implementing
+  `IAdminCommandExecutor` — in practice the player side (prisoner/controller).
+- Executors carry an `EExecutorStatus`: `Regular < Elevated < Admin <
+  SuperAdmin < Developer`. Commands gate on `_requiredExecutorLevel`.
+- `AdminCommandRegistry` (UObject) holds all commands in `_commands` and is the
+  verb→command map the dispatcher searches.
+
+Open question that decides the no-player path: does any **server-side** object
+(e.g. the GameMode or a server manager) implement `IAdminCommandExecutor` with
+`Admin`/`SuperAdmin` status? If so, RCON can borrow it and run commands with no
+players online. If the interface is implemented only by player objects, the
+no-player path requires constructing a UObject that implements the interface
+(harder), and the interim path is to require a connected admin.
+
+Answering it needs the probe extended to enumerate interface implementers
+(walk each `UClass`'s implemented-interfaces array) and dump the registry — then
+one server restart to capture it.
+
 ## Status of the bridge
 
 RCON → command queue → `ProcessEvent` hook on the game thread → reflected
