@@ -413,6 +413,106 @@ int32_t Reflection::PropertiesSize(uintptr_t ustruct) const {
     return size;
 }
 
+// FImplementedInterface { UClass* Class; int32 PointerOffset; bool bK2; } (16 bytes)
+namespace {
+constexpr uint32_t kImplementedInterfaceStride = 16;
+
+bool LooksLikeInterfaceArray(const Reflection& r, uintptr_t cls, uint32_t offset,
+                             uintptr_t classClass) {
+    uintptr_t data = 0;
+    int32_t num = 0, max = 0;
+    if (!memory::Read(cls + offset, data) || !memory::Read(cls + offset + 8, num) ||
+        !memory::Read(cls + offset + 12, max)) {
+        return false;
+    }
+    if (num < 1 || num > 64 || max < num || max > 4096) return false;
+    if (!memory::IsReadable(data, static_cast<size_t>(num) * kImplementedInterfaceStride)) return false;
+    // Validate the first few elements: Class is a UClass, offset/flag sane.
+    for (int32_t i = 0; i < num && i < 3; ++i) {
+        uintptr_t elem = data + static_cast<uintptr_t>(i) * kImplementedInterfaceStride;
+        uintptr_t ifaceClass = 0;
+        int32_t pointerOffset = 0;
+        uint8_t k2 = 0;
+        if (!memory::Read(elem, ifaceClass) || !memory::Read(elem + 8, pointerOffset) ||
+            !memory::Read(elem + 12, k2)) {
+            return false;
+        }
+        if (r.ObjectClass(ifaceClass) != classClass) return false;
+        if (pointerOffset < 0 || pointerOffset > 0x8000 || k2 > 1) return false;
+    }
+    return true;
+}
+}  // namespace
+
+bool Reflection::DiscoverInterfaceOffset() {
+    if (layout_.classInterfaces) return true;
+    const uintptr_t classClass = FindObject("Class /Script/CoreUObject.Class");
+    if (!classClass) return false;
+
+    // Collect a sample of UClass objects.
+    std::vector<uintptr_t> classes;
+    const int32_t count = ObjectCount();
+    for (int32_t i = 0; i < count && classes.size() < 3000; ++i) {
+        uintptr_t object = ObjectAt(i);
+        if (object && ObjectClass(object) == classClass) classes.push_back(object);
+    }
+    if (classes.size() < 50) return false;
+
+    // Vote: the offset where the most classes expose a valid interface array.
+    const uint32_t begin = (layout_.structPropertiesSize + 8 + 7) & ~7u;
+    uint32_t bestOffset = 0;
+    int bestVotes = 0;
+    for (uint32_t off = begin; off <= begin + 0x400; off += 8) {
+        int votes = 0;
+        for (uintptr_t cls : classes) {
+            if (LooksLikeInterfaceArray(*this, cls, off, classClass)) ++votes;
+        }
+        if (votes > bestVotes) {
+            bestVotes = votes;
+            bestOffset = off;
+        }
+    }
+    // Require a clear signal (many classes implement interfaces).
+    if (bestVotes < 20) return false;
+    layout_.classInterfaces = bestOffset;
+    return true;
+}
+
+std::vector<uintptr_t> Reflection::Implementers(uintptr_t interfaceClass) const {
+    std::vector<uintptr_t> result;
+    if (!layout_.classInterfaces || !interfaceClass) return result;
+    const uintptr_t classClass = FindObject("Class /Script/CoreUObject.Class");
+    ForEachObject([&](int32_t, uintptr_t object) {
+        if (ObjectClass(object) != classClass) return;
+        uintptr_t data = 0;
+        int32_t num = 0;
+        if (!memory::Read(object + layout_.classInterfaces, data) ||
+            !memory::Read(object + layout_.classInterfaces + 8, num) || num < 1 || num > 64) {
+            return;
+        }
+        for (int32_t i = 0; i < num; ++i) {
+            uintptr_t iface = 0;
+            if (memory::Read(data + static_cast<uintptr_t>(i) * kImplementedInterfaceStride, iface) &&
+                iface == interfaceClass) {
+                result.push_back(object);
+                return;
+            }
+        }
+    });
+    return result;
+}
+
+uintptr_t Reflection::FindLiveInstance(uintptr_t ofClass) const {
+    if (!ofClass) return 0;
+    uintptr_t found = 0;
+    ForEachObject([&](int32_t, uintptr_t object) {
+        if (found) return;
+        if (ObjectName(object).rfind("Default__", 0) == 0) return;
+        if (IsA(object, ofClass)) found = object;
+    });
+    return found;
+}
+
 uint32_t Reflection::FunctionFlags(uintptr_t ufunction) const {
     uint32_t flags = 0;
     Read(ufunction + layout_.functionFlags, flags);

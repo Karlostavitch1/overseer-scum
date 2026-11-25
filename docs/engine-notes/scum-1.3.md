@@ -95,6 +95,31 @@ Answering it needs the probe extended to enumerate interface implementers
 (walk each `UClass`'s implemented-interfaces array) and dump the registry — then
 one server restart to capture it.
 
+### Answer (probed on 1.3.6)
+
+The probe (`ue4/probe` → `logs/executor-report.txt`) discovered the
+`UClass::Interfaces` offset by voting and enumerated implementers:
+
+- **Exactly one** class implements `IAdminCommandExecutor`: **`ConZPlayerController`**
+  (`… -> PlayerController -> Controller -> Actor`). It is player-side, and with
+  no players connected there is **no instance**.
+- `AdminCommandRegistry` exists server-side and holds the commands.
+
+So the admin command system is intrinsically player-driven: there is no
+server/console executor to borrow, and constructing a `ConZPlayerController`
+(a heavy networked actor) just to execute commands is impractical and fragile.
+
+**Design implication.** Overseer should not try to fake an admin chat executor.
+Instead:
+
+- **Common server operations** RCON users actually want — announce, kick, ban,
+  list players, save, shutdown, set time/weather — are backed by functions on
+  server-side objects (GameMode/GameState/registry/net driver). Call those
+  directly via reflection; they need no player executor. (Confirming the exact
+  functions is the next step.)
+- **Full `#command` admin parity** is only possible against a connected admin's
+  `ConZPlayerController`; offer it as a passthrough when an admin is online.
+
 ## Status of the bridge
 
 RCON → command queue → `ProcessEvent` hook on the game thread → reflected

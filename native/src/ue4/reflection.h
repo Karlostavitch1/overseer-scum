@@ -46,6 +46,8 @@ struct Layout {
     uint32_t functionFlags = 0;
     uint32_t functionParmsSize = 0;
     uint32_t functionNative = 0;
+    // UClass::Interfaces (TArray<FImplementedInterface>), discovered; 0 if unknown
+    uint32_t classInterfaces = 0;
     // UObject::ProcessEvent vtable index (validated)
     uint32_t processEventIndex = 0;
 };
@@ -98,6 +100,18 @@ public:
     int32_t PropertiesSize(uintptr_t ustruct) const;
     uint32_t FunctionFlags(uintptr_t ufunction) const;
     uintptr_t FunctionNative(uintptr_t ufunction) const;
+
+    // Discovers UClass::Interfaces offset by voting across sampled classes.
+    // Best-effort and non-fatal; returns false if it could not be found.
+    bool DiscoverInterfaceOffset();
+
+    // UClasses that implement the given UInterface class (via their
+    // FImplementedInterface array). Requires DiscoverInterfaceOffset() first.
+    std::vector<uintptr_t> Implementers(uintptr_t interfaceClass) const;
+
+    // First non-CDO (name not starting "Default__") live instance of a class
+    // or its subclasses, or 0.
+    uintptr_t FindLiveInstance(uintptr_t ofClass) const;
 
     // Writes everything we have learned plus every object matching `filter`
     // (functions with signatures, classes with properties) to `path`.
