@@ -77,6 +77,10 @@ public:
     int32_t ObjectCount() const;
     uintptr_t ObjectAt(int32_t index) const;
 
+    int32_t ParmsSize(uintptr_t ufunction) const;
+    // Offset of a named parameter/property on a struct or function, or -1.
+    int32_t PropertyOffset(uintptr_t ustruct, const std::string& name) const;
+
     std::string ObjectName(uintptr_t object) const;
     uintptr_t ObjectClass(uintptr_t object) const;
     uintptr_t ObjectOuter(uintptr_t object) const;

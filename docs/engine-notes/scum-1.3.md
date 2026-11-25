@@ -40,9 +40,10 @@ Found by structure, with no hard-coded addresses:
   `_requiredExecutorLevel`, `_shouldExecuteOnServer`/`Client`, cooldowns.
 - Entry points visible in reflection:
   - `MiscStatics.Test_ProcessAdminCommand(WorldContextObject, commandText)` —
-    static, needs no player. **It is an empty stub in shipping builds** (the
-    native implementation is a bare `ret`). The bridge can call it safely but
-    it does nothing. Found by disassembling the UFunction's native thunk.
+    static, needs no player. It is a real function (earlier "empty stub" note
+    was a misread of an inner callee), but calling it with no executor does
+    nothing visible — consistent with the admin system needing a player
+    executor (below).
   - `PlayerRpcChannel.Chat_Server_ProcessAdminCommand(commandText)` — server
     RPC whose thunk forwards to a virtual `_Implementation`. Requires a
     `PlayerRpcChannel`, i.e. a connected player.
@@ -120,11 +121,30 @@ Instead:
 - **Full `#command` admin parity** is only possible against a connected admin's
   `ConZPlayerController`; offer it as a passthrough when an admin is online.
 
+## Direct server operations (working)
+
+Rather than impersonate admin chat, the bridge calls server-side functions
+directly via reflection, on the game thread, with parameters marshalled from
+reflected offsets (nothing hard-coded). Each op validates its function's
+signature at start-up and disables itself on mismatch.
+
+- **`announce <message>`** → `ConZGameMode.SendHUDMessageToAll(Message, beep)`.
+  Verified live on 1.3.6: `#announce …` over RCON executes cleanly on the game
+  thread and the server stays healthy. (Player-visible confirmation needs a
+  connected game client — a separate manual check.)
+- Other server-op functions located for upcoming ops:
+  `MiscStatics.BroadcastChatLine(WorldContext, Text, EChatType)` (chat
+  broadcast; `EChatType::ServerMessage`), `ConZGameMode.KickPlayer(Player,
+  reason)->bool`, and `ConZGameState`/`ConZGameSession` for the player list.
+
+Unknown verbs return a clear "not implemented server-side; needs a connected
+admin" message instead of silently doing nothing.
+
 ## Status of the bridge
 
 RCON → command queue → `ProcessEvent` hook on the game thread → reflected
-UFunction call works end to end without destabilising the server. Remaining
-work for a functioning bridge:
+UFunction call works end to end without destabilising the server, and the first
+direct op (announce) runs on a live server. Remaining work:
 
 1. **Executor.** Either (a) require a connected admin and route through
    `Chat_Server_ProcessAdminCommand` using that player's channel, or

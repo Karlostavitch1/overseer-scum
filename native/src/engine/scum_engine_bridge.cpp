@@ -4,11 +4,14 @@
 #include <tlhelp32.h>
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstring>
-#include <fstream>
+#include <deque>
+#include <initializer_list>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "core/log.h"
@@ -29,15 +32,54 @@ struct FString {
     int32_t max;
 };
 
-// Parameter block of MiscStatics.Test_ProcessAdminCommand, verified against
-// reflection at start-up (WorldContextObject @0, commandText @8, size 24).
-struct TestProcessAdminCommandParams {
-    void* worldContextObject;
-    FString commandText;
-};
-static_assert(sizeof(TestProcessAdminCommandParams) == 24);
-
 using ProcessEventFn = void(__fastcall*)(void* object, void* function, void* params);
+
+// Builds a UFunction parameter block from reflection, so offsets are never
+// hard-coded. Strings it writes stay alive for the lifetime of the Params.
+class Params {
+public:
+    Params(const ue4::Reflection& r, uintptr_t function) : reflection_(r), function_(function) {
+        buffer_.resize(static_cast<size_t>(r.ParmsSize(function)), 0);
+    }
+
+    bool SetString(const char* name, const std::wstring& value) {
+        int32_t off = reflection_.PropertyOffset(function_, name);
+        if (off < 0 || off + static_cast<int32_t>(sizeof(FString)) > Size()) return false;
+        strings_.push_back(value);
+        auto& s = strings_.back();
+        FString fs{s.c_str(), static_cast<int32_t>(s.size() + 1), static_cast<int32_t>(s.size() + 1)};
+        std::memcpy(buffer_.data() + off, &fs, sizeof(fs));
+        return true;
+    }
+
+    bool SetBool(const char* name, bool value) {
+        int32_t off = reflection_.PropertyOffset(function_, name);
+        if (off < 0 || off >= Size()) return false;
+        buffer_[off] = value ? 1 : 0;
+        return true;
+    }
+
+    bool SetObject(const char* name, uintptr_t object) {
+        int32_t off = reflection_.PropertyOffset(function_, name);
+        if (off < 0 || off + 8 > Size()) return false;
+        std::memcpy(buffer_.data() + off, &object, sizeof(object));
+        return true;
+    }
+
+    bool GetBool(const char* name) const {
+        int32_t off = reflection_.PropertyOffset(function_, name);
+        return off >= 0 && off < Size() && buffer_[off] != 0;
+    }
+
+    void* Data() { return buffer_.data(); }
+    int32_t Size() const { return static_cast<int32_t>(buffer_.size()); }
+
+private:
+    const ue4::Reflection& reflection_;
+    uintptr_t function_;
+    std::vector<uint8_t> buffer_;
+    std::deque<std::wstring> strings_;  // stable addresses
+};
 
 std::wstring Utf8ToWide(const std::string& s) {
     if (s.empty()) return {};
@@ -84,7 +126,7 @@ public:
         std::thread([this] { InitializeInBackground(); }).detach();
     }
 
-    const char* Name() const override { return "scum (UE 4.27, MiscStatics.Test_ProcessAdminCommand)"; }
+    const char* Name() const override { return "scum (UE 4.27, direct server ops)"; }
 
     bool SubmitAdminCommand(int64_t requestId, std::string command, CommandCallback callback) override {
         if (!ready_.load()) {
@@ -127,23 +169,24 @@ private:
         }
         log::Info("scum bridge: reflection ready (" + std::to_string(reflection_.ObjectCount()) + " objects)");
 
-        function_ = reflection_.FindObject("Function /Script/SCUM.MiscStatics.Test_ProcessAdminCommand");
-        statics_ = reflection_.FindObject("MiscStatics /Script/SCUM.Default__MiscStatics");
-        if (!function_ || !statics_) return Fail("MiscStatics.Test_ProcessAdminCommand not found");
-        if (!VerifySignature()) return Fail("Test_ProcessAdminCommand signature changed; refusing to call it");
-
         const auto& layout = reflection_.GetLayout();
         if (!layout.processEventIndex) return Fail("UObject::ProcessEvent not located");
-        uintptr_t vtable = 0, processEvent = 0;
-        if (!memory::Read(statics_, vtable) ||
-            !memory::Read(vtable + layout.processEventIndex * sizeof(void*), processEvent)) {
-            return Fail("cannot read UObject vtable");
-        }
 
-        // Wait for a running world: the GameMode doubles as world context.
+        // Wait for a running world: the GameMode is the call target/world context.
         while (!(gameMode_ = FindGameMode())) {
             if (std::chrono::steady_clock::now() > deadline) return Fail("no GameMode instance found");
             std::this_thread::sleep_for(5s);
+        }
+
+        // Resolve the server operations we implement directly (reflection, so no
+        // hard-coded offsets). A missing one disables just that op.
+        announceFn_ = ResolveOp("Function /Script/SCUM.ConZGameMode.SendHUDMessageToAll",
+                                {{"Message", "StrProperty"}, {"beep", "BoolProperty"}});
+
+        uintptr_t vtable = 0, processEvent = 0;
+        if (!memory::Read(gameMode_, vtable) ||
+            !memory::Read(vtable + layout.processEventIndex * sizeof(void*), processEvent)) {
+            return Fail("cannot read UObject vtable");
         }
 
         gameThreadId_ = FindMainThreadId();
@@ -153,19 +196,30 @@ private:
                            &g_originalProcessEvent, error)) {
             return Fail("ProcessEvent hook: " + error);
         }
-        processEvent_ = reinterpret_cast<ProcessEventFn>(processEvent);
         ready_.store(true);
-        log::Info("scum bridge: ready (game thread " + std::to_string(gameThreadId_) + ", world context " +
-                  reflection_.FullName(gameMode_) + ")");
+        log::Info("scum bridge: ready (game thread " + std::to_string(gameThreadId_) + ", world " +
+                  reflection_.FullName(gameMode_) + ", announce=" + (announceFn_ ? "ok" : "unavailable") + ")");
     }
 
-    bool VerifySignature() {
-        auto params = reflection_.Properties(function_);
-        uint16_t parmsSize = 0;
-        memory::Read(function_ + reflection_.GetLayout().functionParmsSize, parmsSize);
-        return params.size() == 2 && parmsSize == sizeof(TestProcessAdminCommandParams) &&
-               params[0].name == "WorldContextObject" && params[0].type == "ObjectProperty" && params[0].offset == 0 &&
-               params[1].name == "commandText" && params[1].type == "StrProperty" && params[1].offset == 8;
+    // Returns the UFunction only if every (name,type) property matches — so a
+    // changed signature disables the op instead of corrupting memory.
+    uintptr_t ResolveOp(const std::string& path,
+                        std::initializer_list<std::pair<const char*, const char*>> expected) {
+        uintptr_t fn = reflection_.FindObject(path);
+        if (!fn) {
+            log::Warn("scum bridge: op not found: " + path);
+            return 0;
+        }
+        auto props = reflection_.Properties(fn);
+        for (auto [name, type] : expected) {
+            bool ok = false;
+            for (const auto& p : props) ok = ok || (p.name == name && p.type == type);
+            if (!ok) {
+                log::Warn("scum bridge: op signature mismatch, disabled: " + path);
+                return 0;
+            }
+        }
+        return fn;
     }
 
     uintptr_t FindGameMode() {
@@ -189,62 +243,59 @@ private:
                reflection_.ObjectAt(index) == gameMode_;
     }
 
+    // Called on the game thread. Parses "verb args" (a leading '#' is allowed)
+    // and dispatches to a directly-implemented server operation.
     void Execute(PendingCommand& command) {
         if (!WorldContextStillValid() && !(gameMode_ = FindGameMode())) {
             command.callback(command.requestId, CommandStatus::Failed, "no running world");
             return;
         }
 
-        std::wstring text = Utf8ToWide(command.command);
-        TestProcessAdminCommandParams params{};
-        params.worldContextObject = reinterpret_cast<void*>(gameMode_);
-        params.commandText = {text.c_str(), static_cast<int32_t>(text.size() + 1),
-                              static_cast<int32_t>(text.size() + 1)};
-
-        const auto logOffset = LogSize();
-        log::Info("scum bridge: executing " + command.command);
-        // Call the trampoline directly so our own hook doesn't see this call.
-        g_originalProcessEvent(reinterpret_cast<void*>(statics_), reinterpret_cast<void*>(function_), &params);
-
-        // Output capture (first iteration): the game reports results through
-        // its log, written asynchronously. Collect new lines off-thread.
-        std::thread([this, offset = logOffset, c = std::move(command)]() mutable {
-            std::this_thread::sleep_for(750ms);
-            c.callback(c.requestId, CommandStatus::Ok, ReadLogSince(offset));
-        }).detach();
-    }
-
-    std::filesystem::path LogPath() const {
-        // <root> = SCUM/Binaries/Win64/overseer -> SCUM/Saved/Logs/SCUM.log
-        return root_.parent_path().parent_path().parent_path() / L"Saved" / L"Logs" / L"SCUM.log";
-    }
-
-    uintmax_t LogSize() const {
-        std::error_code ec;
-        auto size = std::filesystem::file_size(LogPath(), ec);
-        return ec ? 0 : size;
-    }
-
-    std::string ReadLogSince(uintmax_t offset) const {
-        std::ifstream in(LogPath(), std::ios::binary);
-        if (!in) return "(command executed; game log unavailable)";
-        in.seekg(static_cast<std::streamoff>(offset));
-        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        // UE writes the log as UTF-16 only if forced; SCUM's is UTF-8/ANSI.
-        std::string out;
-        size_t start = 0;
-        while (start < text.size()) {
-            size_t end = text.find('\n', start);
-            std::string line = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
-            start = end == std::string::npos ? text.size() : end + 1;
-            if (line.find("Global Stats") != std::string::npos ||
-                line.find("AuthorityTick took") != std::string::npos) {
-                continue;  // periodic noise
-            }
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (!line.empty()) out += line + "\n";
+        std::string line = command.command;
+        size_t start = line.find_first_not_of(" \t#");
+        if (start == std::string::npos) {
+            command.callback(command.requestId, CommandStatus::Ok, "");
+            return;
         }
-        return out.empty() ? "(command executed; no output in game log)" : out;
+        size_t sp = line.find_first_of(" \t", start);
+        std::string verb = line.substr(start, sp == std::string::npos ? std::string::npos : sp - start);
+        std::string args = sp == std::string::npos ? "" : line.substr(line.find_first_not_of(" \t", sp));
+        for (char& c : verb) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+
+        CommandStatus status = CommandStatus::Ok;
+        std::string result = Dispatch(verb, args, status);
+        command.callback(command.requestId, status, result);
+    }
+
+    std::string Dispatch(const std::string& verb, const std::string& args, CommandStatus& status) {
+        if (verb == "announce" || verb == "broadcast" || verb == "say") {
+            return Announce(args, status);
+        }
+        status = CommandStatus::Unsupported;
+        return "'" + verb +
+               "' is not implemented server-side yet. Overseer runs a curated set of operations "
+               "directly (no player required); full admin commands need a connected admin. "
+               "Available: announce <message>.";
+    }
+
+    std::string Announce(const std::string& message, CommandStatus& status) {
+        if (!announceFn_) {
+            status = CommandStatus::Failed;
+            return "announce unavailable (SendHUDMessageToAll not found on this build)";
+        }
+        if (message.empty()) {
+            status = CommandStatus::Failed;
+            return "usage: announce <message>";
+        }
+        Params p(reflection_, announceFn_);
+        if (!p.SetString("Message", Utf8ToWide(message)) || !p.SetBool("beep", true)) {
+            status = CommandStatus::Failed;
+            return "announce: failed to marshal parameters";
+        }
+        // Call the trampoline directly so our own hook doesn't re-enter.
+        g_originalProcessEvent(reinterpret_cast<void*>(gameMode_), reinterpret_cast<void*>(announceFn_), p.Data());
+        log::Info("scum bridge: announced: " + message);
+        return "announced to all players: " + message;
     }
 
     static void __fastcall ProcessEventDetour(void* object, void* function, void* params) {
@@ -259,11 +310,9 @@ private:
     std::atomic<bool> ready_{false};
     std::atomic<bool> failed_{false};
     std::string failure_;
-    uintptr_t function_ = 0;
-    uintptr_t statics_ = 0;
     uintptr_t gameMode_ = 0;
+    uintptr_t announceFn_ = 0;
     DWORD gameThreadId_ = 0;
-    ProcessEventFn processEvent_ = nullptr;
 };
 
 }  // namespace

@@ -129,11 +129,21 @@ void Run(std::filesystem::path root) {
 
     const auto path = root / L"logs" / L"reflection-dump.txt";
     const bool ok = reflection.Dump(path.wstring(), [](const std::string& full) {
-        if (full.rfind("Class /Script/ConZ.", 0) == 0) return true;
+        // Server-side classes whose function lists we want (module is /Script/SCUM).
+        if (full.rfind("Class /Script/SCUM.", 0) == 0) {
+            for (const char* c : {"GameMode", "GameState", "GameSession", "GameInstance",
+                                  "AdminCommandRegistry", "ConZPlayerController"}) {
+                if (Contains(full, c)) return true;
+            }
+        }
         if (Contains(full, "AdminCommand")) return true;
-        if (full.rfind("Function /Script/ConZ.", 0) == 0 &&
-            (Contains(full, "Chat") || Contains(full, "Admin") || Contains(full, "Command"))) {
-            return true;
+        // Server operation functions, dumped with their signatures.
+        if (full.rfind("Function /Script/SCUM.", 0) == 0) {
+            for (const char* v : {"Announce", "Kick", "Ban", "Shutdown", "Save", "Broadcast",
+                                  "Notification", "Message", "ListPlayers", "Destroy", "Mute",
+                                  "Teleport", "SetTime", "Weather"}) {
+                if (Contains(full, v)) return true;
+            }
         }
         return false;
     }, error);

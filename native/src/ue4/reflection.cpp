@@ -513,6 +513,19 @@ uintptr_t Reflection::FindLiveInstance(uintptr_t ofClass) const {
     return found;
 }
 
+int32_t Reflection::ParmsSize(uintptr_t ufunction) const {
+    uint16_t size = 0;
+    memory::Read(ufunction + layout_.functionParmsSize, size);
+    return size;
+}
+
+int32_t Reflection::PropertyOffset(uintptr_t ustruct, const std::string& name) const {
+    for (const auto& p : Properties(ustruct)) {
+        if (p.name == name) return p.offset;
+    }
+    return -1;
+}
+
 uint32_t Reflection::FunctionFlags(uintptr_t ufunction) const {
     uint32_t flags = 0;
     Read(ufunction + layout_.functionFlags, flags);
