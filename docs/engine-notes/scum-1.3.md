@@ -49,11 +49,42 @@ Found by structure, with no hard-coded addresses:
 - Output of admin commands is not written to `SCUM.log`; it is sent back to
   the executing player. Capturing it needs a hook on that reply path.
 
+## Dispatcher and execution model
+
+Traced statically (capstone; see the structure, not the addresses):
+
+- **Registry.** Admin commands live in a `TMap<FString, UAdminCommand*>`
+  keyed by verb. The lookup walks the map's hash buckets comparing the verb
+  string; a miss produces the `Unknown command` log line. Registration rejects
+  a second command with a verb that is already taken
+  (`Could not register admin command …`).
+- **Executor.** Each `UAdminCommand` is executed against an *executor* — the
+  prisoner/player who invoked it. `ExecuteImpl` fetches it from the command
+  object and bails out with `… failed, invalid command executor` when it is
+  null. So a command cannot simply be run "from nobody"; it needs a valid
+  executor set on it first. This is why calling the empty
+  `Test_ProcessAdminCommand` stub does nothing, and why the server-side path
+  (`Chat_Server_ProcessAdminCommand`, which carries the calling player) is the
+  real entry point.
+- **Output.** Commands return their result to the executor through a virtual
+  slot on `UAdminCommand` (not via the log). Hooking that one virtual captures
+  the output of *every* command regardless of how it was invoked — this is the
+  intended output-capture mechanism, replacing the first-pass log scraping.
+  The slot index is to be resolved at runtime, never hard-coded.
+
 ## Status of the bridge
 
 RCON → command queue → `ProcessEvent` hook on the game thread → reflected
-UFunction call works end to end without destabilising the server. What's
-missing is a working, player-independent entry into the admin command
-dispatcher, and an output capture hook. Next step: follow
-`Chat_Server_ProcessAdminCommand_Implementation` to the shared dispatcher and
-determine what executor context it needs.
+UFunction call works end to end without destabilising the server. Remaining
+work for a functioning bridge:
+
+1. **Executor.** Either (a) require a connected admin and route through
+   `Chat_Server_ProcessAdminCommand` using that player's channel, or
+   (b) construct/borrow a server-side executor so RCON can run commands with no
+   players online. (b) is the valuable goal and the harder one; it needs the
+   executor type and the registry/dispatcher entry mapped out (Ghidra would
+   help here).
+2. **Output capture** via the `UAdminCommand` reply virtual (above).
+3. Resolve the registry and dispatcher objects through reflection at runtime,
+   with signature checks, falling back to the null bridge if anything is
+   missing.
