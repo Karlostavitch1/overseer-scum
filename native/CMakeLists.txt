@@ -28,9 +28,13 @@ add_library(overseer_core STATIC
     src/core/log.cpp
     src/core/dotnet_host.cpp
     src/engine/null_engine_bridge.cpp
+    src/engine/scum_engine_bridge.cpp
     src/util/pattern.cpp
     src/util/module.cpp
     src/util/hook.cpp
+    src/util/safe_memory.cpp
+    src/ue4/reflection.cpp
+    src/ue4/probe.cpp
 )
 target_include_directories(overseer_core PUBLIC include src)
 target_compile_definitions(overseer_core PUBLIC ${OVERSEER_DEFINITIONS}

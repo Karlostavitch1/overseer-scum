@@ -19,7 +19,7 @@ $out = Join-Path $repo $Output
 $nativeBuild = Join-Path $repo 'build/native'
 
 Write-Host "==> Native ($Configuration)"
-cmake -S (Join-Path $repo 'native') -B $nativeBuild -A x64
+cmake -S (Join-Path $repo 'native') -B $nativeBuild -A x64 -Wno-deprecated
 if ($LASTEXITCODE) { throw 'cmake configure failed' }
 cmake --build $nativeBuild --config $Configuration
 if ($LASTEXITCODE) { throw 'cmake build failed' }
