@@ -21,7 +21,7 @@ Overseer is split into layers so that the part that depends on SCUM internals
 │    OverseerRuntime ── ConfigStore     config/overseer.json             │
 │                    ── CommandRouter   "#..." → engine, else registry   │
 │                    ── PluginManager   plugins/*.dll, collectible ALCs  │
-│                    ── RconServer      Source RCON on 127.0.0.1:27015   │
+│                    ── RconServer      Source RCON on 127.0.0.1:27020   │
 └────────────────────────────────────────────────────────────────────────┘
         ▲
         │ TCP (Source RCON)

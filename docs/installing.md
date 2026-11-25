@@ -33,7 +33,7 @@ To build a release layout yourself:
   "rcon": {
     "enabled": true,
     "bindAddress": "127.0.0.1",
-    "port": 27015,
+    "port": 27020,
     "password": "generated-on-first-run",
     "maxConnections": 8
   }

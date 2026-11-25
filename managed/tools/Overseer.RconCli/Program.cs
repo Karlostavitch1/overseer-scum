@@ -1,6 +1,6 @@
 // overseer-rcon: minimal Source RCON client.
 //
-//   overseer-rcon [--host 127.0.0.1] [--port 27015] [--password <pw>] [command...]
+//   overseer-rcon [--host 127.0.0.1] [--port 27020] [--password <pw>] [command...]
 //
 // The password can also come from OVERSEER_RCON_PASSWORD. With no command, an
 // interactive prompt starts.
@@ -8,7 +8,7 @@
 using Overseer.Rcon;
 
 var host = "127.0.0.1";
-var port = 27015;
+var port = 27020;
 var password = Environment.GetEnvironmentVariable("OVERSEER_RCON_PASSWORD");
 var commandParts = new List<string>();
 

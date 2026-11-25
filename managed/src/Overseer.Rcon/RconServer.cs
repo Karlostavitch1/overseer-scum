@@ -9,8 +9,8 @@ public sealed class RconServerOptions
 {
     public IPAddress BindAddress { get; init; } = IPAddress.Loopback;
 
-    /// <summary>TCP port. Use 0 to pick a free port (tests).</summary>
-    public int Port { get; init; } = 27015;
+    /// <summary>TCP port (default 27020; SCUM itself uses 7777-7779 and query port 27015). Use 0 to pick a free port.</summary>
+    public int Port { get; init; } = 27020;
 
     /// <summary>Required. The server refuses to start with an empty password.</summary>
     public required string Password { get; init; }

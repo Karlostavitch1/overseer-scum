@@ -7,7 +7,10 @@
 #include "core/dotnet_host.h"
 #include "core/log.h"
 #include "engine/engine_bridge.h"
+#include "engine/scum_engine_bridge.h"
 #include "overseer/native_api.h"
+#include "ue4/probe.h"
+#include "util/module.h"
 
 namespace overseer {
 namespace {
@@ -63,8 +66,25 @@ DWORD WINAPI Bootstrap(LPVOID selfModule) {
     log::Open(root / L"logs" / L"native.log");
     log::Info("Overseer native " OVERSEER_VERSION " starting; root=" + g_rootUtf8);
 
-    // TODO(engine-bridge): select a real SCUM bridge here once implemented.
-    g_bridge = engine::CreateNullEngineBridge();
+    const auto host = module::MainModule();
+    char hostInfo[160];
+    snprintf(hostInfo, sizeof(hostInfo), "base=0x%llx size=0x%zx timestamp=0x%08x version=%s",
+             static_cast<unsigned long long>(host.base), host.size, host.timestamp,
+             host.fileVersion.empty() ? "?" : host.fileVersion.c_str());
+    log::Info("host process: " + ToUtf8(host.path) + " " + hostInfo);
+
+    ue4::StartProbeIfEnabled(root);
+
+    // Use the SCUM bridge only inside SCUMServer.exe; OVERSEER_BRIDGE=null
+    // forces the inert bridge (useful when a game update breaks the hooks).
+    wchar_t bridgeOverride[16] = {};
+    GetEnvironmentVariableW(L"OVERSEER_BRIDGE", bridgeOverride, 16);
+    const bool isScum = _wcsicmp(fs::path(host.path).filename().c_str(), L"SCUMServer.exe") == 0;
+    if (isScum && _wcsicmp(bridgeOverride, L"null") != 0) {
+        g_bridge = engine::CreateScumEngineBridge(root);
+    } else {
+        g_bridge = engine::CreateNullEngineBridge();
+    }
     log::Info(std::string("engine bridge: ") + g_bridge->Name());
 
     const fs::path managedDir = root / L"managed";
