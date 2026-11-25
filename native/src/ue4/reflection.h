@@ -7,6 +7,7 @@
 // from known engine objects. See docs/engine-notes/reflection.md.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -48,6 +49,8 @@ struct Layout {
     uint32_t functionNative = 0;
     // UClass::Interfaces (TArray<FImplementedInterface>), discovered; 0 if unknown
     uint32_t classInterfaces = 0;
+    // FObjectPropertyBase::PropertyClass (UClass*), discovered; 0 if unknown
+    uint32_t objectPropertyClass = 0;
     // UObject::ProcessEvent vtable index (validated)
     uint32_t processEventIndex = 0;
 };
@@ -80,6 +83,19 @@ public:
     int32_t ParmsSize(uintptr_t ufunction) const;
     // Offset of a named parameter/property on a struct or function, or -1.
     int32_t PropertyOffset(uintptr_t ustruct, const std::string& name) const;
+
+    // A named property searched up the SuperStruct chain (inherited properties
+    // included), or nullopt. Use for instance fields such as inherited
+    // AGameStateBase::PlayerArray.
+    std::optional<PropertyInfo> FindProperty(uintptr_t ustruct, const std::string& name) const;
+
+    // Address of the FProperty field for a named property. `recursive` walks the
+    // SuperStruct chain; otherwise only directly-declared properties. 0 if none.
+    uintptr_t PropertyField(uintptr_t ustruct, const std::string& name, bool recursive) const;
+
+    // The declared UClass of an ObjectProperty field (FObjectPropertyBase::
+    // PropertyClass), or 0 if the offset was not discovered.
+    uintptr_t PropertyClassOf(uintptr_t objectProperty) const;
 
     std::string ObjectName(uintptr_t object) const;
     uintptr_t ObjectClass(uintptr_t object) const;
@@ -128,6 +144,7 @@ private:
     bool DiscoverStructLayout(std::string& error);
     bool DiscoverFunctionLayout(std::string& error);
     bool DiscoverProcessEvent(std::string& error);
+    void DiscoverObjectPropertyClass();  // best-effort; non-fatal
 
     bool ready_ = false;
     Layout layout_;

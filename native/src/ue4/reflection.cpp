@@ -356,6 +356,29 @@ bool Reflection::DiscoverProcessEvent(std::string& /*error*/) {
     return true;
 }
 
+// FObjectPropertyBase::PropertyClass holds an ObjectProperty's declared UClass.
+// Discover its offset from AActor::Owner, whose declared class is exactly AActor,
+// and cross-check against another known object property on the same class.
+void Reflection::DiscoverObjectPropertyClass() {
+    if (layout_.objectPropertyClass) return;
+    const uintptr_t actorClass = FindObject("Class /Script/Engine.Actor");
+    const uintptr_t classClass = FindObject("Class /Script/CoreUObject.Class");
+    if (!actorClass || !classClass) return;
+    const uintptr_t owner = PropertyField(actorClass, "Owner", false);
+    if (!owner) return;
+    const uintptr_t instigator = PropertyField(actorClass, "Instigator", false);
+    for (uint32_t off = (layout_.propertyOffset + 4 + 7) & ~7u; off <= 0x100; off += 8) {
+        uintptr_t v = 0;
+        if (!Read(owner + off, v) || v != actorClass) continue;  // Owner's class is AActor
+        if (instigator) {  // Instigator's class must also be some UClass at this offset
+            uintptr_t v2 = 0;
+            if (!Read(instigator + off, v2) || ObjectClass(v2) != classClass) continue;
+        }
+        layout_.objectPropertyClass = off;
+        return;
+    }
+}
+
 bool Reflection::Initialize(std::string& error) {
     if (ready_) return true;
     if (auto text = module::Section(GetModuleHandleW(nullptr), ".text")) {
@@ -367,6 +390,7 @@ bool Reflection::Initialize(std::string& error) {
     if (!layout_.structChildProperties && !DiscoverStructLayout(error)) return false;
     if (!layout_.functionNative && !DiscoverFunctionLayout(error)) return false;
     DiscoverProcessEvent(error);
+    DiscoverObjectPropertyClass();
     ready_ = true;
     return true;
 }
@@ -524,6 +548,43 @@ int32_t Reflection::PropertyOffset(uintptr_t ustruct, const std::string& name) c
         if (p.name == name) return p.offset;
     }
     return -1;
+}
+
+uintptr_t Reflection::PropertyField(uintptr_t ustruct, const std::string& name, bool recursive) const {
+    int sguard = 0;
+    for (uintptr_t s = ustruct; s && sguard < 64; s = recursive ? SuperStruct(s) : 0, ++sguard) {
+        uintptr_t field = 0;
+        if (!Read(s + layout_.structChildProperties, field)) continue;
+        for (int guard = 0; field && guard < 4096; ++guard) {
+            FName fname;
+            if (Read(field + layout_.ffieldName, fname) && NameToString(fname) == name) return field;
+            if (!Read(field + layout_.ffieldNext, field)) break;
+        }
+    }
+    return 0;
+}
+
+std::optional<PropertyInfo> Reflection::FindProperty(uintptr_t ustruct, const std::string& name) const {
+    const uintptr_t field = PropertyField(ustruct, name, true);
+    if (!field) return std::nullopt;
+    PropertyInfo info;
+    FName fname, typeName;
+    uintptr_t fieldClass = 0;
+    Read(field + layout_.ffieldName, fname);
+    if (Read(field + layout_.ffieldClass, fieldClass)) Read(fieldClass, typeName);
+    info.name = NameToString(fname);
+    info.type = NameToString(typeName);
+    Read(field + layout_.propertyOffset, info.offset);
+    Read(field + layout_.propertyElementSize, info.elementSize);
+    Read(field + layout_.propertyArrayDim, info.arrayDim);
+    Read(field + layout_.propertyFlags, info.flags);
+    return info;
+}
+
+uintptr_t Reflection::PropertyClassOf(uintptr_t objectProperty) const {
+    uintptr_t cls = 0;
+    if (objectProperty && layout_.objectPropertyClass) Read(objectProperty + layout_.objectPropertyClass, cls);
+    return cls;
 }
 
 uint32_t Reflection::FunctionFlags(uintptr_t ufunction) const {

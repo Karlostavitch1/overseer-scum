@@ -128,23 +128,39 @@ directly via reflection, on the game thread, with parameters marshalled from
 reflected offsets (nothing hard-coded). Each op validates its function's
 signature at start-up and disables itself on mismatch.
 
-- **`announce <message>`** → `ConZGameMode.SendHUDMessageToAll(Message, beep)`.
-  Verified live on 1.3.6: `#announce …` over RCON executes cleanly on the game
-  thread and the server stays healthy. (Player-visible confirmation needs a
-  connected game client — a separate manual check.)
-- Other server-op functions located for upcoming ops:
-  `MiscStatics.BroadcastChatLine(WorldContext, Text, EChatType)` (chat
-  broadcast; `EChatType::ServerMessage`), `ConZGameMode.KickPlayer(Player,
-  reason)->bool`, and `ConZGameState`/`ConZGameSession` for the player list.
+- **`announce <message>`** (aliases `broadcast`, `say`) →
+  `ConZGameMode.SendHUDMessageToAll(Message, beep)`. Verified live on 1.3.6.
+  (Player-visible confirmation needs a connected game client.)
+- **`players`** (aliases `list`, `who`) → reads the live `APlayerState*`
+  array off the GameState and prints each player's name. The GameState is
+  reached in O(1) from `GameMode.GameState` (scanning the object array on the
+  game thread for every query would hitch the server); `PlayerArray` and
+  `PlayerNamePrivate` are the engine-standard `AGameStateBase`/`APlayerState`
+  properties, resolved up the SuperStruct chain. Pure reads, no engine calls.
+  Verified live: returns `0 players online.` with none connected.
+- **`kick <player> [reason]`** → `ConZGameMode.KickPlayer(Player, kickReason)
+  -> ReturnValue`. The `Player` parameter wants a **`ConZPlayerController`**
+  (confirmed at runtime), not the player state — so the bridge reads the
+  parameter's declared `UClass` (`FObjectPropertyBase::PropertyClass`) and only
+  passes a target that `IsA` that class, reaching the controller via
+  `AActor::Owner`. A wrong-typed object is a clean failure, never a native call,
+  so an unverified kick cannot crash the server. Verified live to the no-target
+  path (`no player named '…' is online`); the actual kick path needs a
+  connected player to exercise.
+
+Still located but not yet wired: `MiscStatics.BroadcastChatLine(WorldContext,
+Text, EChatType)` — a chat-line broadcast needs an `EChatType` enum value
+resolved at runtime (no UEnum reader yet) and a client to confirm the channel;
+`announce` already covers "server message to everyone" via the HUD.
 
 Unknown verbs return a clear "not implemented server-side; needs a connected
-admin" message instead of silently doing nothing.
+admin" message listing the available ops, instead of silently doing nothing.
 
 ## Status of the bridge
 
 RCON → command queue → `ProcessEvent` hook on the game thread → reflected
-UFunction call works end to end without destabilising the server, and the first
-direct op (announce) runs on a live server. Remaining work:
+UFunction call works end to end without destabilising the server. The direct
+ops `announce`, `players` and `kick` run on a live 1.3.6 server. Remaining work:
 
 1. **Executor.** Either (a) require a connected admin and route through
    `Chat_Server_ProcessAdminCommand` using that player's channel, or
